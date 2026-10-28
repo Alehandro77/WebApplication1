@@ -1,7 +1,9 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using WebApplication1.Dtos;
 using WebApplication1.Models;
+using WebApplication1.Services;
 
 namespace WebApplication1.Controllers
 {
@@ -9,97 +11,86 @@ namespace WebApplication1.Controllers
     [ApiController]
     public class UserController : ControllerBase
     {
-        private readonly ShopContext _context;
+        private readonly IUserService _service;
 
-        public UserController(ShopContext context)
+        public UserController(IUserService service)
         {
-            _context = context;
+            _service = service;
         }
 
-        private static UserDTO ToDTO(User user) => new UserDTO
-        {
-            IdUser = user.IdUser,
-            UserName = user.UserName,
-            Login = user.Login,
-            PasswordHash = user.PasswordHash,
-            RoleId = user.RoleId,
-        };
-
         [HttpGet]
-        public IActionResult GetAll(int page = 1, int pageSize = 10)
+        public async Task<IActionResult> GetAll(
+            int page = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            var users = _context.Users
-                .OrderBy(u => u.IdUser)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToList()
-                .Select(ToDTO)
-                .ToList();
-            return Ok(users);
+            var (items, total) = await _service.GetAllAsync(
+                page, pageSize, cancellationToken);
+
+            Response.Headers["X-Total-Count"] = total.ToString();
+            return Ok(items);
         }
 
         [HttpGet("{id}")]
-        public IActionResult GetById(int id)
+        public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
         {
-            var user = _context.Users.FirstOrDefault(u => u.IdUser == id);
+            var user = await _service.GetByIdAsync(id, cancellationToken);
             if (user is null) return NotFound();
-            return Ok(ToDTO(user));
+            return Ok(user);
         }
 
         [HttpPost]
-        public IActionResult Create(CreateUserDTO dto)
+        public async Task<IActionResult> Create(
+            CreateUserDTO dto, CancellationToken cancellationToken)
         {
-            var user = new User
+            try
             {
-                UserName = dto.UserName,
-                Login = dto.Login,
-                PasswordHash = dto.PasswordHash,
-                RoleId = dto.RoleId,
-            };
-            _context.Users.Add(user);
-            _context.SaveChanges();
-
-            return CreatedAtAction(nameof(GetById), new { id = user.IdUser }, ToDTO(user));
+                var user = await _service.CreateAsync(dto, cancellationToken);
+                return CreatedAtAction(
+                    nameof(GetById), new { id = user.IdUser }, user);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
         }
 
         [HttpPut("{id}")]
-        public IActionResult Update(int id, UpdateUserDTO dto)
+        public async Task<IActionResult> Update(
+            int id, UpdateUserDTO dto, CancellationToken cancellationToken)
         {
-            var user = _context.Users.FirstOrDefault(u => u.IdUser == id);
-            if (user is null) return NotFound();
-
-            user.UserName = dto.UserName;
-            user.Login = dto.Login;
-            user.PasswordHash = dto.PasswordHash;
-            user.RoleId = dto.RoleId;
-
-            _context.SaveChanges();
-            return NoContent();
-        }
-
-        [HttpDelete("{id}")]
-        public IActionResult Delete(int id)
-        {
-            var user = _context.Users.FirstOrDefault(u => u.IdUser == id);
-            if (user is null) return NotFound();
-
-            _context.Users.Remove(user);
-            _context.SaveChanges();
-            return NoContent();
+            try
+            {
+                var user = await _service.UpdateAsync(id, dto, cancellationToken);
+                if (user is null) return NotFound();
+                return Ok(user);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
         }
 
         [HttpPatch("{id}")]
-        public IActionResult Patch(int id, PatchUserDTO dto)
+        public async Task<IActionResult> Patch(
+            int id, PatchUserDTO dto, CancellationToken cancellationToken)
         {
-            var user = _context.Users.FirstOrDefault(u => u.IdUser == id);
-            if (user is null) return NotFound();
+            try
+            {
+                var user = await _service.PatсhAsync(id, dto, cancellationToken);
+                if (user is null) return NotFound();
+                return Ok(user);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+        }
 
-            if (dto.UserName is not null) user.UserName = dto.UserName;
-            if (dto.Login is not null) user.Login = dto.Login;
-            if (dto.PasswordHash is not null) user.PasswordHash = dto.PasswordHash;
-            if (dto.RoleId is not null) user.RoleId = dto.RoleId.Value;
-
-            _context.SaveChanges();
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete(
+            int id, CancellationToken cancellationToken)
+        {
+            var delete = await _service.DeleteAsync(id, cancellationToken);
+            if (!delete) return NotFound();
             return NoContent();
         }
     }
